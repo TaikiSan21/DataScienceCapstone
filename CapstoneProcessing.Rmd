@@ -1,0 +1,166 @@
+---
+title: "Capstone March 2016"
+author: "Taiki Sakai"
+date: "March 20, 2016"
+output: html_document
+graphics: yes
+---
+
+## Data Processing Strategy
+
+The first thing I want to do with the data is to split each document into
+separate sentences before we do any processing or analysis. This is to avoied
+problems when turning our data into n-grams later in the process. As an example
+to demonstrate, if we didn't split our documents into separate sentences, then
+a document with "I like cats. Cats are cute." would create a bigram of "cats cats", 
+which is clearly not a valid piece of data. 
+
+
+```{r, echo=FALSE, message=FALSE, results='hide'}
+library(tm)
+library(dplyr)
+library(SnowballC)
+library(quanteda)
+library(ggplot2)
+library(gridExtra)
+# setwd('~/Downloads/en_US')
+
+regexCleaner <- function(charVector) {
+      # drops anything not alphanumeric, a space, or a sentence ender. !?. Also keeping in -:, not sure if replace with space or not. Drops the non-ascii from above
+      result <- gsub('[^[:alnum:][:space:]!?:\\.\\-]', '', charVector)
+      # We are going to split by !?.: later, need to drop the : and . that aren't end of thoughts. Start with ellipses
+      result <- gsub('\\s?\\.{3}\\s?', ' ', result)
+      # Drop colon from time
+      result <- gsub('([0-9]{1,2}):([0-9]{2})', '\\1\\2', result)
+      ## BEFORE spacing after decimals
+      # U.S. and websites These split before spacing decimals ### How tell if end of sentence?
+      result <- gsub('[Uu]\\.[Ss]\\.', 'US', result)
+      # Searching for [...].com/gov/net/org and swap with www. Stand-in for any website.
+      result <- gsub('(^|\\s)\\S*\\.(com|net|gov|org)', '\\1www', result, ignore.case=TRUE)  
+      
+      # Spacing after every period. Consider using [A-Za-z] if i dont want to split decimals
+      result <- gsub('\\.([A-Za-z])', '\\. \\1', result)
+      # Changing any common abbrev.s
+      # Titles
+      result <- gsub('(^|\\s)(st|mr?s?|sen|gov|dr)\\.', '\\1\\2', result, ignore.case=TRUE)
+      # Dates
+      result <- gsub('(^|\\s)(mon|tues?|wed|thurs?|fri|sat|sun|jan|feb|mar|apr|may|jun|jul|aug|sept?|oct|nov|dec)\\.', '\\1\\2', result, ignore.case=TRUE)
+      # Misc.
+      result <- gsub('(^|\\s)(misc|e|w|n|s|etc)\\.', '\\1\\2', result, ignore.case=TRUE)
+      
+      # With extra periods removed, split into sentences
+      result <- strsplit(result, '[\\.!?:]')
+      unlist(result)
+}
+
+```
+We'll start by reading in the data, then checking how many documents there are. 
+For the purpose of this document, we will only examine the US news text. The other text
+documents showed very similar properties, and I decided to omit them for brevity. 
+Using the same techniques shown here provided similar results on the other datasets.
+
+```{r, cache=TRUE, message=FALSE}
+con <- file('en_US.news.txt', 'r')
+wholeDataVec <- readLines(con)
+close(con)
+length(wholeDataVec)
+```
+
+Now we apply the regexCleaner function, and see how many documents we have. The 
+number of documents is now approximately double the original amount.
+
+```{r, cache=TRUE, message=FALSE}
+wholeDataVec <- regexCleaner(wholeDataVec)
+length(wholeDataVec)
+```
+
+Now that we have a single sentence for each document, we can begin processing our
+data using functions from the quanteda and NLP packages. We will apply stemming 
+to the documents so that words like 'running' and 'run' are combined, and then
+convert all letter to lower case.
+
+```{r, cache=TRUE, message=FALSE}
+wholeDataVec <- sapply(strsplit(wholeDataVec, ' '), function(x) paste(wordStem(x), collapse=' '))
+wholeDataVec <- toLower(wholeDataVec)
+```
+
+Our data is currently huge, so it is probably a good idea to use only a subset of
+the whole set. We'll use a sample of 1% of our dataset.
+
+```{r, cache=TRUE, message=FALSE}
+smallDataVec <- sample(wholeDataVec, length(wholeDataVec)*.01)
+rm(wholeDataVec)
+```
+
+```{r, echo=FALSE}
+profanity <- c('fuck', 'shit', 'damn', 'ass', 'cunt', 'bitch', 'dick')
+```
+
+Now we'll create 1-grams (just words) and remove profanity from our data. Later
+we will use the tokenize function to create bi- and trigrams.
+
+```{r, cache=TRUE, message=FALSE}
+smallData <- tokenize(smallDataVec, ngrams=1)
+smallData <- removeFeatures(smallData, features=profanity)
+```
+
+Next we want to create document-frequency matrices so we can examine 
+the distribution of terms in our documents. We see that our data
+set has around 20,000 features (words).
+
+```{r, echo=FALSE,cache=TRUE, message=FALSE, results='hide'}
+freqMatSmall <- dfm(smallData)
+```
+```{r}
+freqMatSmall
+```
+
+We'll look at just the 100 most frequent words and check how they are distributed.
+
+```{r}
+top100small <- topfeatures(freqMatSmall,100)
+```
+
+```{r, echo=FALSE, cache=TRUE, fig.width=6, fig.height=4, fig.align='center', message=FALSE}
+lowDf <- data.frame(words=factor(names(top100small), levels=names(top100small)), count=top100small)
+lowCount <- ggplot(lowDf[1:30,], aes(x=words,y=count)) + geom_bar(stat='identity') + ggtitle('Small Data')
+lowCount
+```
+
+We see that a few words like 'the' 'a' 'to' 'and' have a much higher count than others. This is in line
+with what we might expect. Next we will examine the bigrams and trigrams in the same way.
+
+```{r, echo=FALSE, message=FALSE, cache=TRUE, results='hide'}
+smallData2 <- tokenize(smallDataVec, ngrams=2)
+smallData3 <- tokenize(smallDataVec, ngrams=3)
+freqMatSmall2 <- dfm(smallData2)
+freqMatSmall3 <- dfm(smallData3)
+top100bi <- topfeatures(freqMatSmall2, 100)
+top100tri <- topfeatures(freqMatSmall3, 100)
+lowDf2 <- data.frame(words=factor(names(top100bi), levels=names(top100bi)), count=top100bi)
+lowDf3 <- data.frame(words=factor(names(top100tri), levels=names(top100tri)), count=top100tri)
+lowCount2 <- ggplot(lowDf2[1:30,], aes(x=words,y=count)) + geom_bar(stat='identity') + ggtitle('Bigrams')
+lowCount3 <- ggplot(lowDf3[1:30,], aes(x=words,y=count)) + geom_bar(stat='identity') + ggtitle('Trigrams')
+```
+
+```{r}
+freqMatSmall2
+freqMatSmall3
+```
+
+We have 173,000 bigrams and 274,000 trigrams in our data. These are what we will use to build our
+predictive model. 
+
+```{r, echo=FALSE, fig.align='center', fig.width=8, fig.height=4}
+grid.arrange(lowCount2, lowCount3, ncol=2)
+```
+
+From the graphs we can see that there are still certain bigrams and trigrams with
+much higher frequency, but that the distribution is much less extreme than with
+the single words. 
+
+Our general modelling strategy will be to use the trigrams, then bigrams to predict
+the next word. We will group the bigrams by their first term (ie. hair_piece, hair_ball would
+be grouped together) and trigrams by their first two terms (ie. my_favorite_food, 
+my_favorite_color would be grouped together). Then for each input we can suggest
+the most frequently occuring of these choices from our dataset.
