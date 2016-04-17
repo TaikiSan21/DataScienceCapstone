@@ -12,60 +12,9 @@ library(quanteda)
 library(ggplot2)
 library(gridExtra)
 library(data.table)
-setwd('~/Coursera/Capstone')
-# directory has de_DE en_US ru_RU subfolders with the text files
-#use tm_map(dataset, function, ...)
-# stemDoc, stripWhitespace, content_transformer(tolower), removeWords(doc, vector of words to drop), stopwords(language='lowercase language') 
-# also want to drop punctuation other than periods. I think each sentence should be
-# a single data point, not just each line. 
+source('CapstoneFunctions.R')
+setwd('~/R Projects/DataScienceCapstone')
 
-regexCleaner <- function(charVector) {
-      # drops anything not alphanumeric, a space, or a sentence ender. !?. Also keeping in -:, not sure if replace with space or not. Drops the non-ascii from above
-      result <- gsub('[^[:alnum:][:space:]@!?:\\.\\-]', '', charVector)
-      # emails and websites before U.S. and shit
-      result <- gsub('(^|\\s)\\S*\\.(com|net|gov|org)', '\\1www', result, ignore.case=TRUE)
-      result <- gsub('(^|\\s)[[:graph:]]*@[[:graph:]]*([[:punct:]]|$|\\s)', '\\1anemail\\2', result, ignore.case=TRUE)
-      # We are going to split by !?.: later, need to drop the : and . that aren't end of thoughts. Start with ellipses
-      result <- gsub('(\\s*\\.){2,}', '', result)
-      # Dashes, either like-this or -- like this
-      result <- gsub('(\\s*-)+', ' ', result)
-      # Drop colon from time
-      result <- gsub('([0-9]{1,2}):([0-9]{2})', '\\1\\2', result)
-      ## BEFORE spacing after decimals
-      # U.S. and websites These split before spacing decimals ### How tell if end of sentence?
-      # Separating U.S.A or M.D.
-      result <- gsub('([A-Za-z])\\.([A-Za-z])\\.([A-Za-z]?)\\.?', '\\1\\2\\3', result, ignore.case=TRUE)
-      
-      # Searching for [...].com/gov/net/org and swap with www. Stand-in for any website.
-      
-      # No. 5, etc.
-      result <- gsub('no\\.\\s?([0-9]+)', 'no \\1', result, ignore.case=TRUE)
-      # decimal numbers
-      result <- gsub('([0-9]*)\\.([0-9]+)', '\\1\\2', result)
-      
-      # Spacing after every period. Consider using [A-Za-z] if i dont want to split decimals
-      result <- gsub('\\.([A-Za-z])', '\\. \\1', result)
-      # Changing any common abbrev.s
-      # Titles
-      result <- gsub('(^|\\s)(st|mr?s?|sens?|gov|dr|sr|jr|rep|lt|sgt|gen|cpt|capt?|vs|mt|prop|prof|tsp|tbsp|rev|dist|cpl|ave)\\.', '\\1\\2', result, ignore.case=TRUE)
-      # Dates
-      result <- gsub('(^|\\s)(mon|tues?|wed|thurs?|fri|sat|sun|jan|feb|mar|apr|may|jun|jul|aug|sept?|oct|nov|dec)\\.', '\\1\\2', result, ignore.case=TRUE)
-      # Misc.
-      result <- gsub('(^|\\s)(misc|e|w|n|s|etc)\\.', '\\1\\2', result, ignore.case=TRUE)
-      result <- gsub('(^\\s|\\s$)', '', result, ignore.case=TRUE)
-      result <- gsub('\\s{2,}', ' ', result)
-      # With extra periods removed, split into sentences
-      result <- strsplit(result, '[\\.!?:]')
-      gsub('(^\\s|\\s$)', '', unlist(result), ignore.case=TRUE)
-}
-#####################
-# READ IN 5ormore_7percent.txt
-# Using 5 percent sample, top 20k words
-# maybe this doesnt really work
-#####################
-# This is 5 or more instances of word, sampling at 7%. Can construct ngrams from here
-
-# smallLocs <- smallLocs[8:length(smallLocs)]
 # US news has 1010242, 2206918 after
 fraction <- .1
 con <- file('en_US.news.txt', 'r', encoding='UTF-8')
@@ -129,6 +78,7 @@ close(con)
 
 lessWords <- trainWords
 rm(trainWords)
+
 # Making ngrams
 unigrams <- tokenize(lessWords, ngrams=1)
 Nsize <- length(unlist(unigrams))
@@ -159,71 +109,52 @@ rm(trisums, trimat)
 
 #########################
 # Saving Data
-write.csv(unidat, 'unigrams.csv')
+write.csv(unigrams, 'unigrams.csv')
 write.csv(bidat, 'bigrams.csv')
 write.csv(tridat, 'trigrams.csv')
 # write.csv(quaddat, 'quadgrams.csv')
 saveRDS(dict,'dict.rds') # readRDS('dict.rds')
-wordFollows <-summarise(group_by(bidat, Word2), Follows=n())    
+uniFollows <-summarise(group_by(bigrams, Word2), Follows=n())  
+biFollows <- summarise(group_by(trigrams, Word2, Word3), FOllows=n())
 #########################
+# First column is index for some reason
+unigrams <- data.table(read.csv('unigrams.csv')[,c(2,3)])
+bigrams <- data.table(read.csv('bigrams.csv')[,c(2,3,4)])
+trigrams <- data.table(read.csv('trigrams.csv')[,c(2,3,4,5)])
+dict <- readRDS('dict.rds')
 
-toNumbers <- function(x, d) {
-      # x is ngram sums vector
-      # d is our dictionary that is a named integer
-      splitNames <- sapply(names(x), function(x) strsplit(x, '_'))
-      cols <- length(splitNames[[1]])
-      result <- matrix(0,length(x),cols)
-      for(i in 1:cols){
-            result[,i] <- d[sapply(splitNames, function(x) x[[i]])]
-      }
-      unname(cbind(result, x))
-}
+# Just store the damn follows
+unigrams$Follows <- KNUni(unigrams, bigrams)
+bigrams$Follows <- summarise(group_by(trigrams,Word2, Word3), Follows=n())$Follows
 
-toWords <- function(x, d) {
-      # x is a vector with numbers corresponding to words. Last is the count
-      # d is our dictionary
-      paste(names(d[x]), collapse=' ')
-}
 
-KNBi <- function(w, uni, bi, tri, follows, d=.75) {
-      # w is word - start of bigram. For now needs to be number.
-      # d is absolute cutoff
-      # x is first half of equation
-      # Outputs matrix, first column is word ID, second is prob.
-      # Using a lot of structure of our data
-      # Access sorted probabilities by using
-      # data.table(data, key='V2'), then tail of that
-      # or which(data >= -sort(-data, partial=5)[5]) gets indices(words)
-      # when bi is data table 4x faster
-      ####################################
-      # Now used for intermediate trigram step
-      ####################################
-      # Create constants per sheet
-      N2S <- sum(bi$Word1==w)
-      C23 <- nrow(bi)
-      # Create new follows object (2) in sheet
-      follows2 <- summarise(group_by(tri[Word2==w,], Word3), Follows=n())
-      x <- rep(0, nrow(uni)+1)
-      x[follows2$Word3] <- follows2$Follows
-      x <- x-d
-      x[x<0] <- 0
-      # Second part
-      y <- rep(0, nrow(uni))
-      # follows <- summarise(group_by(bi, Word2), Follows=n())
-      y[follows$Word2] <- follows$Follows
-      y[1] <- 0
-      # Multiply by constant parts
-      y <- y*d*N2S/C23
-#       arrange(data.frame(Word= 1:length(y),Prob = (x+y)/uni[uni$Word1==w,]$Count),
-#               desc(Prob))
-      # Its uni[w-1] because uni does not have word 1 = . so each
-      # word is not in its place, but shifted by one
-      # Nevermind, just outputting as vector. Position is word number.
-      (x+y)/uni[w-1,2]
-}
+# Problem: Need the D values later, don't want to store so many
+# follows for memory size. Might have to dump speed =(
+# Not sure if I want to use DMaker before or inside.. BAH.
+# Maybe just have it spit it out D instead of assign to DT.
+bigrams <- DMaker(bigrams)
+trigrams <- DMaker(trigrams)
+
+con <- file('10percentTest.txt','r', encoding='UTF-8')
+testWords <- readLines(con)
+close(con)
+triTest <- colSums(dfm(tokenize(sapply(testWords, function(x) paste('. .', x)), ngrams=3)))
+triTest <- toNumbers(triTest, dict)
+triTest <- data.table(triTest)
+names(triTest) <- c('Word1', 'Word2', 'Word3', 'Count')
+
+
+
 Rprof()
-for(i in 1:200){
-t <- KNBi(4,unidat,bit,wordFollows)
+for(i in 1:50){
+t <- KNTri(c(12,4),unigrams,bigrams,trigrams)
+}
+Rprof(NULL)
+summaryRprof()
+
+Rprof()
+for(i in 1:50){
+      temp <- KNBi(4, unigrams, bigrams)
 }
 Rprof(NULL)
 summaryRprof()
@@ -232,41 +163,25 @@ summaryRprof()
 t <- data.table(t)
 Rprof()
 for(i in 1:100){
-      temp <- t[Word1 == 5,]
+      temp <- KNPredict('what comes after clam',dict, unigrams, bigrams, trigrams)
 }
 Rprof(NULL)
 summaryRprof()
-KNTri <- function(w, uni, bi, tri, follows, d=.75) {
-      # w is a vector of words c(12, 4) 
-      # uni, bi, tri should all be data tables
-      # follows is a stored table. For each word the # of words it follows
-      # or the # of bigrams it ends. 
-      # First we generate all of our constants, labeled on my paper
-      C12 <- max(bi[Word1==w[1] & Word2==w[2], Count],1)
-      N12S <- max(sum(tri$Word1==w[1] & tridat$Word2==w[2]),1)
-      NS2S <- sum(tri$Word2==w[2])
-      # Bracket part is passed off
-      PKNBi <- KNBi(w[2], uni, bi, tri, follows, d)
-      PKNBi <- PKNBi*d*N12S/NS2S
-      # First part
-      x <- rep(0, nrow(uni)+1)
-      wTri <- tri[Word1==w[1] & Word2==w[2],]
-      x[wTri$Word3] <- wTri$Count
-      x <- x-d
-      x[x<0] <- 0
-      (x+PKNBi)/C12
-}
 
-KNPredict <- function(s, dict, uni, bi, tri, follows) {
-      sNum <- dict[unlist(strsplit(s, ' '))]
-      revNum <- rev(sNum)
-      KNPreds <- KNTri(c(revNum[2], revNum[1]), uni, bi, tri, follows)
-      KNPreds <- which(KNPreds >= -sort(-KNPreds, partial=5)[5])
-      names(dict[KNPreds])
-}
-      
-predictText <- function(s, d, bi, tri, quad) {
-      sNum <- d[unlist(strsplit(s, ' '))]
+
+
+
+
+
+tenThousand <- sample(1:589332, 10000)
+Rprof()
+# ~ 4.5 hours to run on whole set
+predictions <- unlist(apply(triTest[tenThousand,], 1, function(x) KNPredict(c(x[1], x[2]), dict, unigrams, bigrams, trigrams)))
+Rprof(NULL)
+summaryRprof()
+
+predictText <- function(s, d, bi, tri, quad, split=' ') {
+      sNum <- d[unlist(strsplit(s, split))]
       revNum <- rev(sNum)
       bpred <- arrange(bi[bi$Word1==revNum[1],], desc(Count))
       bpred$Count <- bpred$Count / sum(bpred$Count)
@@ -280,6 +195,10 @@ predictText <- function(s, d, bi, tri, quad) {
       result
       
 }
+
+# Strategy for predicting function:
+# Make trigrams for the test set, then just input each one.
+# So input will be this_kind_of character
       
 # if wanting to get top N results, tail(sort(x, partial=length(x)-(n-1)), n)
 # nGrammer <- function(x, n) {
