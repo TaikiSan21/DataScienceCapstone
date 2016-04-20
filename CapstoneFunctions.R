@@ -88,7 +88,7 @@ KNTri <- function(w, uni, bi, tri, d=.75) {
       wTri <- tri[Word1==w[1],][Word2==w[2],]
       N12S <- nrow(wTri)
       #NS2S <- sum(tri$Word2==w[2])
-      NS2S <- nrow(wTri[Word2==w[2],])
+      NS2S <- nrow(tri[Word2==w[2],])
       # Bracket part is passed off
       PKNBi <- KNBiInt(w[2], uni, bi, d)/NS2S
       PKNBi <- PKNBi*d*N12S #modKN(tri, w, 3)
@@ -166,11 +166,11 @@ KNPredict <- function(s, dict, uni, bi, tri, split=' ') {
       revNum <- rev(sNum)
       if(nrow(tri[Word1==revNum[2],][Word2==revNum[1],]) > 0){
             KNPreds <- KNTri(c(revNum[2], revNum[1]), uni, bi, tri)
-            print(3)
+            
       }
       else if(nrow(bi[Word1==revNum[1],]) > 0){
             KNPreds <- KNBi(revNum[1], uni, bi)
-            print(2)
+            
       }
       else KNPreds <- uni$Follows
       # Getting top 5 probabilities

@@ -12,22 +12,22 @@ library(quanteda)
 library(ggplot2)
 library(gridExtra)
 library(data.table)
-source('CapstoneFunctions.R')
 setwd('~/R Projects/DataScienceCapstone')
+source('CapstoneFunctions.R')
 
 # US news has 1010242, 2206918 after
-fraction <- .1
-con <- file('en_US.news.txt', 'r', encoding='UTF-8')
+fraction <- .2
+con <- file('en_US.news.txt', encoding='UTF-8')
 # con <- file('news_cleaned319.txt', 'r')
 wholeDataVec <- readLines(con)
 close(con)
 smallDataVec <- sample(wholeDataVec, length(wholeDataVec)*fraction)
-con <- file('en_US.twitter.txt', 'r', encoding='UTF-8')
+con <- file('en_US.twitter.txt', encoding='UTF-8')
 # con <- file('news_cleaned319.txt', 'r')
 wholeDataVec <- readLines(con)
 close(con)
 smallDataVec <- append(smallDataVec, sample(wholeDataVec, length(wholeDataVec)*fraction))
-con <- file('en_US.blogs.txt', 'r', encoding='UTF-8')
+con <- file('en_US.blogs.txt', encoding='UTF-8')
 # con <- file('news_cleaned319.txt', 'r')
 # wholeDataVec <- readLines(con,10)
 close(con)
@@ -43,6 +43,8 @@ length(smallDataVec)
 # Lower case and remove single words - things without spaces
 smallDataVec <- toLower(smallDataVec)
 smallDataVec <- smallDataVec[grep('\\s', smallDataVec)]
+lessWords <- smallDataVec
+rm(smallDataVec)
 profanity <- c('fuck', 'shit', 'damn', 'ass', 'cunt', 'bitch', 'dick')
 # smallDataVec <- removeFeatures(smallDataVec, features=profanity)
 # Could create a function that creates list with ngrams, dfm, graph can access by result$graph
@@ -79,27 +81,31 @@ close(con)
 lessWords <- trainWords
 rm(trainWords)
 
+lessWords <- iconv(lessWords, 'UTF-8', 'ASCII')
 # Making ngrams
-unigrams <- tokenize(lessWords, ngrams=1)
+unigrams <- tokenize(t, ngrams=1)
 Nsize <- length(unlist(unigrams))
 unisums <- colSums(dfm(unigrams))
 rm(unigrams)
 dict <- 1:(length(unisums)+1)
+names(dict) <- c('.',names(unisums))#, 'xxxxx')
 unimat <- toNumbers(unisums, dict)
-unidat <- data.table(unimat)
-names(unidat) <- c('Word1', 'Count')
-names(dict) <- c('.',names(unisums))
-rm(unimat)
+unigrams <- data.table(unimat)
+names(unigrams) <- c('Word1', 'Count')
+unigrams <- rbind(data.table(Word1=1, Count=0, Follows=0), unigrams)
+unigrams <- rbind(unigrams, data.table(Word1=235297, Count=0, Follows=0))
+
+rm(unimat,unisums)
 # To match size, append . to the start. Storing as numbers is 60-70% less
-bisums <- colSums(dfm(tokenize(sapply(lessWords, function(x) paste('.', x)), ngrams=2)))
+bisums <- colSums(dfm(tokenize(sapply(t, function(x) paste('.', x)), ngrams=2)))
 bimat <- toNumbers(bisums, dict)
-bidat <- data.table(bimat)
-names(bidat) <- c('Word1', 'Word2', 'Count')
+bigrams <- data.table(bimat)
+names(bigrams) <- c('Word1', 'Word2', 'Count')
 rm(bisums, bimat)
-trisums <- colSums(dfm(tokenize(sapply(lessWords, function(x) paste('. .', x)), ngrams=3)))
+trisums <- colSums(dfm(tokenize(sapply(t, function(x) paste('. .', x)), ngrams=3)))
 trimat <- toNumbers(trisums, dict)
-tridat <- data.table(trimat)
-names(tridat) <- c('Word1', 'Word2', 'Word3', 'Count')
+trigrams <- data.table(trimat)
+names(trigrams) <- c('Word1', 'Word2', 'Word3', 'Count')
 rm(trisums, trimat)
 # quadsums <- colSums(dfm(tokenize(sapply(lessWords, function(x) paste('. . .', x)), ngrams=4)))
 # quadmat <- toNumbers(quadsums, dict)
@@ -110,21 +116,29 @@ rm(trisums, trimat)
 #########################
 # Saving Data
 write.csv(unigrams, 'unigrams.csv')
-write.csv(bidat, 'bigrams.csv')
-write.csv(tridat, 'trigrams.csv')
+write.csv(bigrams, 'bigrams.csv')
+write.csv(trigrams, 'trigrams.csv')
 # write.csv(quaddat, 'quadgrams.csv')
 saveRDS(dict,'dict.rds') # readRDS('dict.rds')
 uniFollows <-summarise(group_by(bigrams, Word2), Follows=n())  
 biFollows <- summarise(group_by(trigrams, Word2, Word3), FOllows=n())
 #########################
 # First column is index for some reason
-unigrams <- data.table(read.csv('unigrams.csv')[,c(2,3)])
-bigrams <- data.table(read.csv('bigrams.csv')[,c(2,3,4)])
+
+unigrams <- data.table(read.csv('unigrams.csv')[,c(2,3,4)])
+bigrams <- data.table(read.csv('bigrams.csv')[,c(2,3,4,5)])
 trigrams <- data.table(read.csv('trigrams.csv')[,c(2,3,4,5)])
 dict <- readRDS('dict.rds')
 
 # Just store the damn follows
+bigrams$Word1[is.na(bigrams$Word1)] <- 235297
+bigrams$Word2[is.na(bigrams$Word2)] <- 1
+trigrams$Word1[is.na(trigrams$Word1)] <- 235297
+trigrams$Word2[is.na(trigrams$Word2)] <- 235297
+trigrams$Word3[is.na(trigrams$Word3)] <- 1
+
 unigrams$Follows <- KNUni(unigrams, bigrams)
+unigrams <- rbind(data.table(Word1=1, Count=0, Follows=0), unigrams)
 bigrams$Follows <- summarise(group_by(trigrams,Word2, Word3), Follows=n())$Follows
 
 
