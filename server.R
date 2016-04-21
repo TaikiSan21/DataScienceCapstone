@@ -22,6 +22,10 @@ shinyServer(
             output$pred2 <- renderText({predictions()[2]})
             output$pred3 <- renderText({predictions()[3]})
             output$loading <- renderText({'Complete!'})
+            output$table <- renderDataTable({data.frame(
+                  c(predictions()[1],
+                    predictions()[2],
+                    predictions()[3]))})
             
       }
 )
