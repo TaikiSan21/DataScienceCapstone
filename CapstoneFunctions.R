@@ -1,5 +1,10 @@
-# All functions created for my capstone project
-#
+# All functions created for my Johns Hopkins Data Science
+# Specialization Capstone Project
+
+#####################################################################
+# Function for cleaning up text inputs. We need to remove punctuation,
+# split sentences, and a bunch of other stuf before analyzing.
+#####################################################################
 regexCleaner <- function(charVector) {
       # drops anything not alphanumeric, a space, or a sentence ender. !?. Also keeping in -:, not sure if replace with space or not. Drops the non-ascii from above
       result <- gsub('[^[:alnum:][:space:]@!?:\\.\\-]', '', charVector)
