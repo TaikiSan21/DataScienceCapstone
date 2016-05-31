@@ -1,10 +1,10 @@
 # This is my data import and processing file for 
 # the Coursera DS Specialization capstone project
-
-### Simple way is to create input-output pairs - for Get the dog
-### we would have y=the x = get, y=dog, x=the
-### could expand to y = dog, x = get the
-### limit expansion to 3 or 4 to simplify, create separate model for each case
+# Sort of stream-of-consciousness, serves as a
+# history of things I tried and how I ended up with
+# my cleaned dataset. Functions used found in
+# CapstoneFunctions.R
+# 
 library(tm)
 library(dplyr)
 library(SnowballC)
@@ -34,7 +34,6 @@ close(con)
 smallDataVec <- append(smallDataVec, sample(wholeDataVec, length(wholeDataVec)*fraction))
 rm(wholeDataVec)
 
-# I think I can use the quanteda package to sentence split..FML 2206918 by my splitting 
 # testdat <- readLines(con)
 length(smallDataVec)
 smallDataVec <- regexCleaner(smallDataVec)
@@ -45,8 +44,6 @@ smallDataVec <- toLower(smallDataVec)
 smallDataVec <- smallDataVec[grep('\\s', smallDataVec)]
 lessWords <- smallDataVec
 rm(smallDataVec)
-profanity <- c('fuck', 'shit', 'damn', 'ass', 'cunt', 'bitch', 'dick')
-# smallDataVec <- removeFeatures(smallDataVec, features=profanity)
 # Could create a function that creates list with ngrams, dfm, graph can access by result$graph
 
 # words <- tokenize(smallDataVec, ngrams=1)
@@ -113,6 +110,16 @@ rm(trisums, trimat)
 # names(quaddat) <- c('Word1', 'Word2', 'Word3', 'Word4', 'Count')
 # rm(quadsums, quadmat)
 
+# Storing the follows
+bigrams$Word1[is.na(bigrams$Word1)] <- 235297
+bigrams$Word2[is.na(bigrams$Word2)] <- 1
+trigrams$Word1[is.na(trigrams$Word1)] <- 235297
+trigrams$Word2[is.na(trigrams$Word2)] <- 235297
+trigrams$Word3[is.na(trigrams$Word3)] <- 1
+
+unigrams$Follows <- KNUni(unigrams, bigrams)
+unigrams <- rbind(data.table(Word1=1, Count=0, Follows=0), unigrams)
+bigrams$Follows <- summarise(group_by(trigrams,Word2, Word3), Follows=n())$Follows
 #########################
 # Saving Data
 write.csv(unigrams, 'unigrams.csv')
@@ -123,6 +130,9 @@ saveRDS(dict,'dict.rds') # readRDS('dict.rds')
 uniFollows <-summarise(group_by(bigrams, Word2), Follows=n())  
 biFollows <- summarise(group_by(trigrams, Word2, Word3), FOllows=n())
 #########################
+
+# From here on misc. stuff, testing, profiling code to try and speed it up.
+
 # First column is index for some reason
 
 unigrams <- data.table(read.csv('unigrams.csv')[,c(2,3,4)])
@@ -130,18 +140,11 @@ bigrams <- data.table(read.csv('bigrams.csv')[,c(2,3,4,5)])
 trigrams <- data.table(read.csv('trigrams.csv')[,c(2,3,4,5)])
 dict <- readRDS('dict.rds')
 
-# Just store the damn follows
-bigrams$Word1[is.na(bigrams$Word1)] <- 235297
-bigrams$Word2[is.na(bigrams$Word2)] <- 1
-trigrams$Word1[is.na(trigrams$Word1)] <- 235297
-trigrams$Word2[is.na(trigrams$Word2)] <- 235297
-trigrams$Word3[is.na(trigrams$Word3)] <- 1
-
-unigrams$Follows <- KNUni(unigrams, bigrams)
-unigrams <- rbind(data.table(Word1=1, Count=0, Follows=0), unigrams)
-bigrams$Follows <- summarise(group_by(trigrams,Word2, Word3), Follows=n())$Follows
 
 
+####################
+# Trying modified KN
+####################
 # Problem: Need the D values later, don't want to store so many
 # follows for memory size. Might have to dump speed =(
 # Not sure if I want to use DMaker before or inside.. BAH.
@@ -158,7 +161,7 @@ triTest <- data.table(triTest)
 names(triTest) <- c('Word1', 'Word2', 'Word3', 'Count')
 
 
-
+# Profiling to speed things up
 Rprof()
 for(i in 1:50){
 t <- KNTri(c(12,4),unigrams,bigrams,trigrams)
@@ -182,11 +185,6 @@ for(i in 1:100){
 Rprof(NULL)
 summaryRprof()
 
-
-
-
-
-
 tenThousand <- sample(1:589332, 10000)
 Rprof()
 # ~ 4.5 hours to run on whole set
@@ -209,82 +207,6 @@ predictText <- function(s, d, bi, tri, quad, split=' ') {
       result
       
 }
-
-# Strategy for predicting function:
-# Make trigrams for the test set, then just input each one.
-# So input will be this_kind_of character
-      
-# if wanting to get top N results, tail(sort(x, partial=length(x)-(n-1)), n)
-# nGrammer <- function(x, n) {
-#       # Takes in character vector and n-gram number
-#       # Returns list object with:
-#             # data = tokenized n-gram data
-#             # dfm = DFM of the data
-#             # top = top 100 terms
-#             # plot = ggplot object of top n-grams
-#       data <- tokenize(x, ngrams=n)
-#       dfm <- dfm(data)
-# #       top <- topfeatures(dfm, 100)
-# #       plot <- ggplot(data.frame(words=factor(names(top), levels=names(top)), count=top)[1:30,],
-# #                      aes(x=words, y=count)) + geom_bar(stat='identity') + ggtitle(paste('Top ', n, '- grams')) +
-# #             coord_flip()
-#       list(data=data, dfm=dfm)#, top=top, plot=plot)
-# }
-
-
-# 
-# con <- file('5ormore_7percent.txt')
-# writeLines(lessWords, con)
-# close(con)
-
-# gramGrouper <- function(dfm) {
-#       # Wants a DFM object of 2-grams or larger
-#       # Splits the grams into last bit and first bit so
-#       # we can group by first bit. Then the top frequency last
-#       # bits are what we predict from.
-#       # Is this faster if i dont insert directly into DF?
-#       sumsDf <- data.frame(names=colnames(dfm), counts=colSums(dfm))
-#       sumsDf$names <- as.character(sumsDf$names)
-#       first <- sapply(sumsDf$names, function(x) gsub('(.*)_([^_]*)$', '\\1', x))
-#       second <- sapply(sumsDf$names, function(x) gsub('(.*)_([^_]*)$', '\\2', x))
-#       sumsDf$first <- first
-#       sumsDf$second <- second
-#       # sumsDf
-#       # This gets the most frequent for every gram. Can start with this instead of giving options
-#       sumsDf %>%
-#             group_by(first) %>%
-#             mutate(prob=counts/sum(counts))
-# 
-# }
-
-
-
-# predictText <- function(s, b, t, q, p) {
-#       # Predict from the string using bi-tri-quad
-#       split <- strsplit(s, '_')[[1]]
-#       bi <- split[4]
-#       tri <- paste(split[3], bi,sep='_')
-#       quad <- paste(split[2], tri, sep='_')
-#       bpred <- arrange(b[b$first==bi,], desc(prob))[1:10,4:5]
-#       tpred <- arrange(t[t$first==tri,], desc(prob))[1:10,4:5]
-#       qpred <- arrange(q[q$first==quad,], desc(prob))[1:10,4:5]
-#       ppred <- arrange(p[p$first==s,], desc(prob))[1:10,4:5]
-#       cbind(bpred, tpred, qpred, ppred)
-# }
-# uni41662 bi387124 tri708903
-# max(nchar(rawdat)) this shit takes so much memory
-# myCorp <- VCorpus(VectorSource(testdat))
-# rm(testdat)
-# # Getting a text document object for use with tm
-# # Instead stem with sapply(strsplit(vector, ' '), wordStem) with SnowballC
-# 
-# myCorp <- tm_map(myCorp, stemDocument)
-# myCorp <- tm_map(myCorp, stripWhitespace)
-# myCorp <- tm_map(myCorp, content_transformer(tolower))
-# # Cant remove stopwords, they are used in sentences we need to predict
-# # myCorp <- tm_map(myCorp, removeWords, stopwords('en'))
-# 
-# myCorp <- tm_map(myCorp, removeWords, profanity)
 
 # I wan to get DTM, then matrix <- inspect(DTM), then sort(colSums(matrix), descending=TRUE)
 # to grab top 100 or whatever terms.
